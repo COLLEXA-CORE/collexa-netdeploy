@@ -1,2 +1,7 @@
 data
 secret.key
+main.spec
+__pycache__/
+.vscode/
+dist/
+build/

@@ -21,7 +21,7 @@ class CollexaView(ctk.CTk):
         except: pass
 
         self.title("Collexa NetDeploy") 
-        self.geometry("800x700")
+        self.geometry("850x750")
         
         self._load_icon()
 
@@ -45,27 +45,17 @@ class CollexaView(ctk.CTk):
             if os.path.exists(icon): self.iconbitmap(default=icon)
         except: pass
 
-    # --- NEW: FUNCTION TO MAKE LOGO WHITE FOR DARK MODE ---
     def _create_dark_mode_logo(self, img_path):
-        """
-        Reads the logo and turns all BLACK pixels into WHITE pixels
-        so they show up against the Dark Mode background.
-        """
+        """Converts black pixels to white for dark mode."""
         img = Image.open(img_path).convert("RGBA")
         datas = img.getdata()
-        
         new_data = []
         for item in datas:
-            # item is (R, G, B, Alpha)
-            # Check if the pixel is dark (Black or Dark Grey)
-            # We assume 'Red' has high R value, so we look for low R, G, and B.
+            # If pixel is dark (Black/Grey), turn White
             if item[0] < 80 and item[1] < 80 and item[2] < 80:
-                # Change to White (255, 255, 255), keep original Alpha
                 new_data.append((255, 255, 255, item[3]))
             else:
-                # Leave Red (or transparent) pixels alone
                 new_data.append(item)
-        
         img.putdata(new_data)
         return img
 
@@ -82,28 +72,16 @@ class CollexaView(ctk.CTk):
         try:
             img_path = self._get_asset("header_logo.png")
             if os.path.exists(img_path):
-                # 1. Load Original (Black Text) for Light Mode
                 light_mode_img = Image.open(img_path)
-                
-                # 2. Generate White Text version for Dark Mode
                 dark_mode_img = self._create_dark_mode_logo(img_path)
-
-                # Resize both
                 ratio = 60 / light_mode_img.height
                 new_size = (int(light_mode_img.width * ratio), 60)
                 
-                # Create the Dynamic Image
-                img = ctk.CTkImage(
-                    light_image=light_mode_img, # Used when Light Mode is on
-                    dark_image=dark_mode_img,   # Used when Dark Mode is on
-                    size=new_size
-                )
+                img = ctk.CTkImage(light_image=light_mode_img, dark_image=dark_mode_img, size=new_size)
                 ctk.CTkLabel(header_box, image=img, text="").pack()
             else:
                 ctk.CTkLabel(header_box, text="COLLEXA", font=("Arial", 36, "bold"), text_color=COLLEXA_RED).pack()
-        except Exception as e: 
-            print(f"Logo Error: {e}")
-            ctk.CTkLabel(header_box, text="COLLEXA", font=("Arial", 36, "bold"), text_color=COLLEXA_RED).pack()
+        except: pass
 
         powered_frame = ctk.CTkFrame(header_box, fg_color="transparent")
         powered_frame.pack(pady=(5, 0))
@@ -122,7 +100,7 @@ class CollexaView(ctk.CTk):
         ctk.CTkLabel(files_frame, text="Operation Mode:").grid(row=0, column=0, padx=20, pady=(20, 5), sticky="w")
         self.mode_var = ctk.StringVar(value="Configuration Push")
         self.mode_combo = ctk.CTkComboBox(files_frame, values=["Configuration Push", "Retrieve Data (Show)"], 
-                                          command=self.toggle_mode, variable=self.mode_var, width=250,
+                                          command=self.update_ui_state, variable=self.mode_var, width=250,
                                           button_color=COLLEXA_RED, border_color=COLLEXA_RED)
         self.mode_combo.grid(row=0, column=1, padx=10, pady=(20, 5), sticky="w")
 
@@ -132,20 +110,24 @@ class CollexaView(ctk.CTk):
         ctk.CTkButton(files_frame, text="Browse", width=80, fg_color=COLLEXA_RED, hover_color="#B71C1C", 
                       command=lambda: self.browse_file(self.entry_excel)).grid(row=1, column=2, padx=10)
 
+        # -- Dynamic Widgets --
         self.lbl_tmpl = ctk.CTkLabel(files_frame, text="Jinja2 Template")
         self.entry_template = ctk.CTkEntry(files_frame)
-        self.btn_tmpl = ctk.CTkButton(files_frame, text="Browse", width=80, fg_color=COLLEXA_RED, hover_color="#B71C1C",
-                                      command=lambda: self.browse_file(self.entry_template))
+        self.btn_tmpl = ctk.CTkButton(files_frame, text="Browse", width=80, fg_color=COLLEXA_RED, command=lambda: self.browse_file(self.entry_template))
         
         self.lbl_cmd = ctk.CTkLabel(files_frame, text="Command to Run")
         self.entry_cmd = ctk.CTkEntry(files_frame, placeholder_text="e.g. show version")
+
+        self.lbl_nc = ctk.CTkLabel(files_frame, text="Filter (XML/JSON)")
+        self.entry_nc = ctk.CTkEntry(files_frame, placeholder_text="Path to .xml or .json filter")
+        self.btn_nc = ctk.CTkButton(files_frame, text="Browse", width=80, fg_color=COLLEXA_RED, command=lambda: self.browse_file(self.entry_nc))
         
         self.format_frame = ctk.CTkFrame(files_frame, fg_color="transparent")
         self.format_var = ctk.StringVar(value="JSON")
         ctk.CTkLabel(self.format_frame, text="Save As:").pack(side="left", padx=(0,10))
         for fmt in ["JSON", "XML", "Text"]:
             ctk.CTkRadioButton(self.format_frame, text=fmt, variable=self.format_var, value=fmt, 
-                               fg_color=COLLEXA_RED, hover_color=COLLEXA_RED).pack(side="left", padx=5)
+                               fg_color=COLLEXA_RED, hover_color=COLLEXA_RED, command=self.update_ui_state).pack(side="left", padx=5)
         
         self.convert_var = ctk.BooleanVar(value=True)
         self.chk_convert = ctk.CTkCheckBox(self.format_frame, text="Auto-Convert to Excel", variable=self.convert_var,
@@ -172,8 +154,8 @@ class CollexaView(ctk.CTk):
         self.lbl_grp2.place(x=15, y=-8)
 
         self.protocol_var = ctk.StringVar(value="SSH")
-        ctk.CTkRadioButton(p_frame, text="SSH", variable=self.protocol_var, value="SSH", fg_color=COLLEXA_RED).grid(row=0, column=0, padx=20, pady=(20,5))
-        ctk.CTkRadioButton(p_frame, text="NETCONF", variable=self.protocol_var, value="NETCONF", fg_color=COLLEXA_RED).grid(row=1, column=0, padx=20, pady=5)
+        ctk.CTkRadioButton(p_frame, text="SSH", variable=self.protocol_var, value="SSH", fg_color=COLLEXA_RED, command=self.update_ui_state).grid(row=0, column=0, padx=20, pady=(20,5))
+        ctk.CTkRadioButton(p_frame, text="NETCONF", variable=self.protocol_var, value="NETCONF", fg_color=COLLEXA_RED, command=self.update_ui_state).grid(row=1, column=0, padx=20, pady=5)
         self.vendor_combo = ctk.CTkComboBox(p_frame, values=["Cisco IOS", "Cisco XR", "Juniper Junos", "Nokia SR OS", "Huawei VRP"],
                                             button_color=COLLEXA_RED, border_color=COLLEXA_RED)
         self.vendor_combo.grid(row=2, column=0, padx=20, pady=10, sticky="ew")
@@ -189,11 +171,9 @@ class CollexaView(ctk.CTk):
         self.entry_user.grid(row=0, column=0, padx=20, pady=(20,5), sticky="ew")
         self.entry_pass = ctk.CTkEntry(c_frame, placeholder_text="Password", show="*")
         self.entry_pass.grid(row=1, column=0, padx=20, pady=5, sticky="ew")
-        
         self.save_creds_var = ctk.BooleanVar()
         ctk.CTkCheckBox(c_frame, text="Save Creds", variable=self.save_creds_var, fg_color=COLLEXA_RED).grid(row=2, column=0, padx=20, pady=5, sticky="w")
         
-        # Theme Switcher
         self.seg_theme = ctk.CTkSegmentedButton(c_frame, values=["Light", "Dark"], 
                                                 command=self.change_theme,
                                                 selected_color=COLLEXA_RED,
@@ -228,8 +208,8 @@ class CollexaView(ctk.CTk):
         self.log_box = ctk.CTkTextbox(self.main_panel, border_color="gray", border_width=1)
         self.log_box.grid(row=5, column=0, sticky="nsew")
 
-        # INITIAL STATE (After buttons created)
-        self.toggle_mode("Configuration Push")
+        # INITIAL STATE
+        self.update_ui_state()
 
     # --- HELPERS ---
     def change_theme(self, value):
@@ -246,29 +226,37 @@ class CollexaView(ctk.CTk):
             power_text = "#555555"
 
         self.configure(fg_color=bg_color)
-        
         for lbl in [self.lbl_grp1, self.lbl_grp2, self.lbl_grp3, self.lbl_grp4]:
             lbl.configure(fg_color=frame_label_bg, text_color=text_color)
-            
         self.lbl_powered.configure(text_color=power_text)
 
-    def toggle_mode(self, choice):
-        if choice == "Configuration Push":
-            self.lbl_cmd.grid_forget(); self.entry_cmd.grid_forget()
-            self.format_frame.grid_forget(); self.regex_frame.grid_forget()
+    def update_ui_state(self, event=None):
+        mode = self.mode_var.get()
+        proto = self.protocol_var.get()
+
+        # Hide all dynamic
+        for w in [self.lbl_tmpl, self.entry_template, self.btn_tmpl,
+                  self.lbl_cmd, self.entry_cmd,
+                  self.lbl_nc, self.entry_nc, self.btn_nc,
+                  self.format_frame, self.regex_frame]: w.grid_forget()
+
+        if mode == "Configuration Push":
             self.lbl_tmpl.grid(row=2, column=0, padx=20, pady=5, sticky="w")
             self.entry_template.grid(row=2, column=1, padx=10, pady=5, sticky="ew")
             self.btn_tmpl.grid(row=2, column=2, padx=10, pady=5)
             self.btn_run.configure(text="RUN CONFIGURATION", fg_color="#008000")
         else:
-            self.lbl_tmpl.grid_forget(); self.entry_template.grid_forget(); self.btn_tmpl.grid_forget()
-            self.lbl_cmd.grid(row=2, column=0, padx=20, pady=5, sticky="w")
-            self.entry_cmd.grid(row=2, column=1, padx=10, pady=5, sticky="ew")
+            self.btn_run.configure(text="RETRIEVE DATA", fg_color=COLLEXA_RED)
             self.format_frame.grid(row=3, column=0, columnspan=3, padx=20, pady=5, sticky="w")
-            self.btn_run.configure(text="RETRIEVE DATA", fg_color=COLLEXA_RED, hover_color="#B71C1C")
             
-            if self.format_var.get() == "Text": self.regex_frame.grid(row=4, column=0, columnspan=3, padx=20, pady=5, sticky="ew")
-            else: self.regex_frame.grid_forget()
+            if proto == "SSH":
+                self.lbl_cmd.grid(row=2, column=0, padx=20, pady=5, sticky="w")
+                self.entry_cmd.grid(row=2, column=1, padx=10, pady=5, sticky="ew")
+                if self.format_var.get() == "Text": self.regex_frame.grid(row=4, column=0, columnspan=3, padx=20, pady=5, sticky="ew")
+            elif proto == "NETCONF":
+                self.lbl_nc.grid(row=2, column=0, padx=20, pady=5, sticky="w")
+                self.entry_nc.grid(row=2, column=1, padx=10, pady=5, sticky="ew")
+                self.btn_nc.grid(row=2, column=2, padx=10, pady=5)
 
     def toggle_jump(self):
         state = "normal" if self.use_jump.get() else "disabled"
@@ -297,6 +285,7 @@ class CollexaView(ctk.CTk):
             'jh_user': self.jh_user.get(), 'jh_pass': self.jh_pass.get(),
             'mode': 'retrieve' if self.mode_var.get() == "Retrieve Data (Show)" else 'push',
             'cmd': self.entry_cmd.get(), 'template': self.entry_template.get(),
+            'netconf_file': self.entry_nc.get(),
             'format': self.format_var.get(), 'auto_convert': self.convert_var.get(),
             'regex_file': self.entry_regex.get()
         }

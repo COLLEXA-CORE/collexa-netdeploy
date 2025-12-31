@@ -1,7 +1,8 @@
 import threading
+import json
+import os
 from .models import CredentialManager, TunnelManager, NetworkRunner, ReportGenerator
 import pandas as pd
-import os
 
 VENDOR_MAP = {
     "Cisco IOS": "cisco_ios", "Cisco XR": "cisco_xr", "Cisco NX-OS": "cisco_nxos",
@@ -50,7 +51,7 @@ class AppController:
                 if not host: continue
                 
                 # Tunnel Setup
-                c_host, c_port = host, int(row_data.get('port', 22))
+                c_host, c_port = host, int(row_data.get('port', 830 if p['protocol'] == "NETCONF" else 22))
                 if tunnel:
                     try:
                         self.log(f"Tunneling to {host}...")
@@ -63,7 +64,6 @@ class AppController:
                 self.log(f"Processing {host}...")
                 dtype = row_data.get('device_type', VENDOR_MAP.get(p['vendor'], 'cisco_ios'))
                 
-                # SSH / NETCONF Logic
                 if p['protocol'] == "SSH":
                     dev = {'device_type': dtype, 'host': c_host, 'username': p['user'], 'password': p['pass'], 'port': c_port}
                     if p['mode'] == 'retrieve':
@@ -80,14 +80,32 @@ class AppController:
                         self.log(f"  > {'SUCCESS' if ok else 'FAIL'}: {res}")
                 
                 elif p['protocol'] == "NETCONF":
-                    # (Similar Netconf Logic)
-                    dev = {'host': c_host, 'username': p['user'], 'password': p['pass'], 'port': c_port}
-                    cfg = NetworkRunner.render_config(p['template'], row_data)
-                    ok, res = NetworkRunner.push_netconf(dev, cfg)
-                    self.log(f"  > NETCONF: {res}")
+                    dev = {'host': c_host, 'username': p['user'], 'password': p['pass'], 'port': c_port, 'device_params': {'name':'default'}}
+                    if p['mode'] == 'retrieve':
+                        # Handle Filter (JSON -> XML or Raw XML)
+                        filter_content = ""
+                        try:
+                            if p['netconf_file'].endswith('.json'):
+                                with open(p['netconf_file'], 'r') as f:
+                                    json_data = json.load(f)
+                                filter_content = NetworkRunner.json_to_xml(json_data)
+                            else:
+                                with open(p['netconf_file'], 'r') as f: filter_content = f.read()
+                        except Exception as e: self.log(f"  > FILTER ERR: {e}"); continue
+
+                        ok, res = NetworkRunner.retrieve_netconf(dev, filter_content)
+                        if ok:
+                            if not os.path.exists("results"): os.makedirs("results")
+                            with open(f"results/{host}.xml", "w") as f: f.write(res)
+                            self.log(f"  > SAVED: {host}.xml")
+                        else: self.log(f"  > FAIL: {res}")
+                    else:
+                        cfg = NetworkRunner.render_config(p['template'], row_data)
+                        ok, res = NetworkRunner.push_netconf(dev, cfg)
+                        self.log(f"  > {'SUCCESS' if ok else 'FAIL'}: {res}")
 
             # 3. Report
-            if p['mode'] == 'retrieve' and p['auto_convert']:
+            if p['mode'] == 'retrieve' and p['auto_convert'] and p['protocol'] == 'SSH':
                 self.log("Generating Report...")
                 ok, msg = ReportGenerator.generate_excel_report(p['format'], p['regex_file'])
                 self.log(f"REPORT: {msg}")

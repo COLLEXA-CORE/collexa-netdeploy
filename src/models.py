@@ -14,7 +14,6 @@ import re
 import xml.etree.ElementTree as ET
 import xml.dom.minidom
 
-#
 class CredentialManager:
     def __init__(self, key_file='secret.key', cred_file='creds.dat'):
         self.key_file = key_file
@@ -101,6 +100,24 @@ class NetworkRunner:
     @staticmethod
     def render_config(template_path, context):
         with open(template_path, 'r') as f: return Template(f.read()).render(**context)
+    
+    @staticmethod
+    def json_to_xml(json_data):
+        """Recursively converts a JSON dictionary to an XML string for NETCONF filters."""
+        def build_xml(element, data):
+            if isinstance(data, dict):
+                for key, value in data.items():
+                    if key.startswith("@"): element.set(key[1:], str(value))
+                    elif key == "#text": element.text = str(value)
+                    else:
+                        sub_element = ET.SubElement(element, key)
+                        build_xml(sub_element, value)
+            else: element.text = str(data)
+
+        root_key = list(json_data.keys())[0]
+        root = ET.Element(root_key)
+        build_xml(root, json_data[root_key])
+        return ET.tostring(root, encoding='unicode')
 
     @staticmethod
     def push_ssh(device_info, commands):
@@ -118,6 +135,14 @@ class NetworkRunner:
         try:
             with manager.connect(**device_info, hostkey_verify=False, device_params={'name':'default'}) as m:
                 return True, str(m.edit_config(target='running', config=xml_config))
+        except Exception as e: return False, str(e)
+
+    @staticmethod
+    def retrieve_netconf(device_info, xml_filter):
+        try:
+            with manager.connect(**device_info, hostkey_verify=False, device_params={'name':'default'}) as m:
+                response = m.get_config(source='running', filter=xml_filter)
+                return True, response.data_xml
         except Exception as e: return False, str(e)
 
     @staticmethod
